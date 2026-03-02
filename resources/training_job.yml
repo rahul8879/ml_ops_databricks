@@ -1,8 +1,3 @@
-# ═══════════════════════════════════════════════════════
-# AstraZeneca — Training Job
-# DAB se deploy + run hoga — no manual intervention
-# ═══════════════════════════════════════════════════════
-
 resources:
   jobs:
     training_job:
@@ -17,12 +12,15 @@ resources:
         - task_key: train_baseline
           existing_cluster_id: ${var.cluster_id}
 
-          notebook_task:
-            notebook_path: /src/training/train_baseline.py
-            base_parameters:
-              catalog: ${var.catalog}
-              experiment_name: ${var.experiment_name}
-              env: ${bundle.target}
+          spark_python_task:
+            python_file: ${workspace.file_path}/src/training/train_baseline.py
+            parameters:
+              - "--catalog"
+              - ${var.catalog}
+              - "--experiment_name"
+              - ${var.experiment_name}
+              - "--env"
+              - ${bundle.target}
 
       max_concurrent_runs: 1
       timeout_seconds: 3600
