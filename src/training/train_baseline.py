@@ -199,26 +199,25 @@ def log_to_mlflow(model, params, metrics, X_train):
 
         # ── Log Parameters ───────────────────────────────
         mlflow.log_params(params)
-        mlflow.log_param("feature_count",   len(FEATURE_COLS))
-        mlflow.log_param("train_samples",   len(X_train))
+        mlflow.log_param("feature_count",      len(FEATURE_COLS))
+        mlflow.log_param("train_samples",      len(X_train))
         mlflow.log_param("imbalance_strategy", "sample_weight_balanced")
-        mlflow.log_param("catalog",         CATALOG)
-        mlflow.log_param("feature_table",   FEATURE_TABLE)
+        mlflow.log_param("catalog",            CATALOG)
+        mlflow.log_param("feature_table",      FEATURE_TABLE)
 
         # ── Log Metrics ──────────────────────────────────
         mlflow.log_metrics(metrics)
 
-        # ── Log Model ────────────────────────────────────
+        # ── Log Model (without registering inside run) ───
         mlflow.xgboost.log_model(
             xgb_model=model,
             artifact_path="model",
-            registered_model_name=MODEL_NAME,
             input_example=X_train.iloc[:5],
         )
 
         # ── Log Feature Importance ───────────────────────
         feat_imp = pd.DataFrame({
-            "feature":   FEATURE_COLS,
+            "feature":    FEATURE_COLS,
             "importance": model.feature_importances_
         }).sort_values("importance", ascending=False)
 
@@ -228,23 +227,32 @@ def log_to_mlflow(model, params, metrics, X_train):
         for _, row in feat_imp.head(5).iterrows():
             print(f"      {row.feature:<25} {row.importance:>12.4f}")
 
-        # Save feature importance as artifact
-        feat_imp.to_csv("/tmp/feature_importance.csv", index=False)
-        mlflow.log_artifact("/tmp/feature_importance.csv")
-
         # ── Tags ─────────────────────────────────────────
         mlflow.set_tags({
-            "model_type":    "xgboost",
-            "use_case":      "drug_efficacy_prediction",
-            "data_version":  "baseline_v1",
-            "environment":   "dev",
-            "week":          "week3_day1",
+            "model_type":   "xgboost",
+            "use_case":     "drug_efficacy_prediction",
+            "data_version": "baseline_v1",
+            "environment":  "dev",
+            "week":         "week3_day1",
         })
 
         run_id = run.info.run_id
-        print(f"\n      ✅ MLflow Run ID: {run_id}")
-        print(f"      ✅ Experiment:    {EXPERIMENT_NAME}")
-        print(f"      ✅ Model logged:  {MODEL_NAME}")
+        print(f"\n      ✅ Run ID: {run_id}")
+
+    # ── Register AFTER run completes ─────────────────────
+    # Unity Catalog ke saath run ke baad register karna chahiye
+    print(f"\n      Registering in Unity Catalog...")
+    try:
+        model_uri = f"runs:/{run_id}/model"
+        mlflow.register_model(
+            model_uri=model_uri,
+            name=MODEL_NAME
+        )
+        print(f"      ✅ Model registered: {MODEL_NAME}")
+    except Exception as e:
+        print(f"      ⚠️  Registration issue: {e}")
+        print(f"      Manual register karo:")
+        print(f"      URI: runs:/{run_id}/model")
 
     return run_id
 
