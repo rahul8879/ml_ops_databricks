@@ -7,6 +7,7 @@
 import argparse
 import os
 import warnings
+from xmlrpc import client
 
 import mlflow
 import mlflow.xgboost
@@ -23,7 +24,8 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from sklearn.utils.class_weight import compute_sample_weight
-
+import mlflow
+from mlflow.tracking import MlflowClient
 warnings.filterwarnings("ignore")
 
 # ════════════════════════════════════════════════════════
@@ -39,6 +41,7 @@ parser.add_argument(
     default="astrazeneca_dev",
     help="Unity Catalog name"
 )
+
 parser.add_argument(
     "--experiment_name",
     type=str,
@@ -59,11 +62,14 @@ EXPERIMENT_NAME = args.experiment_name
 ENV             = args.env
 
 # ── Derived Config ───────────────────────────────────────
-GOLD_TABLE    = f"{CATALOG}.gold.drug_features"
-FEATURE_TABLE = f"{CATALOG}.ml.drug_efficacy_features"
-MODEL_NAME    = f"{CATALOG}.ml.drug_efficacy_model"
-TARGET        = "efficacy_label"
-RANDOM_STATE  = 42
+GOLD_TABLE      = f"{CATALOG}.gold.drug_features"
+FEATURE_TABLE   = f"{CATALOG}.ml.drug_efficacy_features"
+MODEL_NAME      = f"{CATALOG}.ml.drug_efficacy_model"
+TARGET          = "efficacy_label"
+RANDOM_STATE    = 42
+
+# MLflow experiment — absolute path
+EXPERIMENT_NAME = f"/Users/rtiwarirahul123@gmail.com/astrazeneca_{ENV}_drug_efficacy"
 
 # ── Feature Columns ──────────────────────────────────────
 FEATURE_COLS = [
@@ -214,10 +220,24 @@ def evaluate_and_log(model, params, X_train, X_val, y_val):
     print(f"      FN={cm[1][0]:,}  TP={cm[1][1]:,}")
     print(f"\n      ⚠️  FP={cm[0][1]:,} drugs wrongly marked effective")
 
-    # ── MLflow Logging ───────────────────────────────────
+ 
+  # ── MLflow Logging ───────────────────────────────────
     mlflow.set_registry_uri("databricks-uc")
-    mlflow.set_experiment(EXPERIMENT_NAME)
+    client = MlflowClient()
 
+    # Absolute path — /Users/username/experiment_name
+    experiment_name = f"/Users/rtiwarirahul123@gmail.com/astrazeneca_{ENV}_drug_efficacy"
+
+    # Experiment exist karta hai ya nahi
+    experiment = client.get_experiment_by_name(experiment_name)
+    if experiment is None:
+        client.create_experiment(experiment_name)
+        print(f"      ✅ Experiment created: {experiment_name}")
+    else:
+        print(f"      ✅ Experiment found: {experiment_name}")
+
+    mlflow.set_experiment(experiment_name)
+        
     with mlflow.start_run(run_name=f"xgboost_{ENV}_baseline_v1") as run:
 
         # Parameters
