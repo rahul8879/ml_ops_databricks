@@ -1,0 +1,24 @@
+environment: dev
+
+databricks:
+  host: ${DATABRICKS_HOST}
+  cluster_id: ${DATABRICKS_CLUSTER_ID}
+
+mlflow:
+  experiment_name: drug_efficacy_dev
+  model_name: drug_efficacy_model_dev
+
+data:
+  raw_path: dbfs:/astrazeneca/data/raw/
+  processed_path: dbfs:/astrazeneca/data/processed/
+  reference_path: dbfs:/astrazeneca/data/reference/
+
+model:
+  target_column: efficacy_label
+  test_size: 0.2
+  random_state: 42
+
+drift:
+  psi_threshold: 0.25
+  accuracy_drop_threshold: 0.05
+  check_interval_minutes: 60
