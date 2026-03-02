@@ -5,40 +5,41 @@
 #
 # RUN KARO: Databricks Notebook pe (local nahi)
 # ═══════════════════════════════════════════════════════
-
+import os
 import mlflow
 import mlflow.xgboost
 import xgboost as xgb
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
+from pyspark.sql import SparkSession
 from sklearn.metrics import (
     accuracy_score, precision_score,
     recall_score, f1_score, roc_auc_score,
-    confusion_matrix, classification_report
+    confusion_matrix
 )
 from sklearn.utils.class_weight import compute_sample_weight
 import warnings
 warnings.filterwarnings("ignore")
 
-# ── Only import Spark if running on Databricks ───────────
-try:
-    from pyspark.sql import SparkSession
-    spark = SparkSession.builder.getOrCreate()
-    IS_DATABRICKS = True
-    print("✅ Running on Databricks")
-except Exception:
-    IS_DATABRICKS = False
-    print("⚠️  Running locally — use Databricks for training")
+# ── Spark Session ────────────────────────────────────────
+spark = SparkSession.builder.getOrCreate()
+print("✅ Spark ready!")
 
-# ── Config ───────────────────────────────────────────────
-CATALOG          = "astrazeneca_dev"
-FEATURE_TABLE    = f"{CATALOG}.ml.drug_efficacy_features"
-GOLD_TABLE       = f"{CATALOG}.gold.drug_features"
-EXPERIMENT_NAME  = "/astrazeneca/dev/drug_efficacy"
-MODEL_NAME       = f"{CATALOG}.ml.drug_efficacy_model"
-TARGET           = "efficacy_label"
-RANDOM_STATE     = 42
+# ── Config — DAB base_parameters se aayega ───────────────
+CATALOG         = os.getenv("catalog",          "astrazeneca_dev")
+EXPERIMENT_NAME = os.getenv("experiment_name",  "/astrazeneca/dev/drug_efficacy")
+ENV             = os.getenv("env",              "dev")
+
+print(f"✅ Environment: {ENV}")
+print(f"✅ Catalog:     {CATALOG}")
+print(f"✅ Experiment:  {EXPERIMENT_NAME}")
+
+# ── Derived Config ───────────────────────────────────────
+GOLD_TABLE    = f"{CATALOG}.gold.drug_features"
+FEATURE_TABLE = f"{CATALOG}.ml.drug_efficacy_features"
+MODEL_NAME    = f"{CATALOG}.ml.drug_efficacy_model"
+TARGET        = "efficacy_label"
+RANDOM_STATE  = 42
 
 # ── Feature columns ──────────────────────────────────────
 FEATURE_COLS = [
