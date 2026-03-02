@@ -188,10 +188,34 @@ def train_model(X_train, y_train, X_val, y_val, weights):
     return model, params
 
 
-# ════════════════════════════════════════════════════════
-# STEP 4 — Evaluate + Log to MLflow
-# Register NAHI karenge — manual review baad mein
-# ════════════════════════════════════════════════════════
+def save_run_metadata(run_id, metrics):
+    print("\nSaving run metadata for next task...")
+
+    run_metadata = spark.createDataFrame([{
+        "run_id":          str(run_id),
+        "environment":     str(ENV),
+        "catalog":         str(CATALOG),
+        "experiment_name": str(EXPERIMENT_NAME),
+        "precision":       float(metrics["precision"]),
+        "recall":          float(metrics["recall"]),
+        "f1_score":        float(metrics["f1_score"]),
+        "roc_auc":         float(metrics["roc_auc"]),
+        "accuracy":        float(metrics["accuracy"]),
+        "status":          "trained",
+        "model_version":   "None",
+        "created_at":      str(pd.Timestamp.now().isoformat()),
+    }])
+
+    run_metadata.write \
+        .format("delta") \
+        .mode("overwrite") \
+        .option("overwriteSchema", "true") \
+        .saveAsTable(f"{CATALOG}.monitoring.training_runs")
+
+    print(f"✅ Run metadata saved → {CATALOG}.monitoring.training_runs")
+    print(f"   run_id: {run_id}")
+
+
 def evaluate_and_log(model, params, X_train, X_val, y_val):
     print("\n[4/4] Evaluating + Logging to MLflow...")
 
@@ -290,7 +314,7 @@ def evaluate_and_log(model, params, X_train, X_val, y_val):
     print(f"      ℹ️   Model NOT registered yet")
     print(f"      ℹ️   Review metrics → then register manually")
 
-    return run_id
+    return run_id, metrics
 
 
 # ════════════════════════════════════════════════════════
@@ -304,11 +328,11 @@ model, params                   = train_model(
                                     X_val, y_val,
                                     weights
                                   )
-run_id                          = evaluate_and_log(
+run_id, metrics                   = evaluate_and_log(
                                     model, params,
                                     X_train, X_val, y_val
                                   )
-
+save_run_metadata(run_id, metrics)
 print("\n" + "="*55)
 print(" ✅ Training Complete!")
 print("="*55)

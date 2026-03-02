@@ -1,0 +1,36 @@
+# ═══════════════════════════════════════════════════════
+# AstraZeneca — Drift Detection Job
+# ═══════════════════════════════════════════════════════
+
+resources:
+  jobs:
+    drift_detection_job:
+      name: "[${bundle.target}] AstraZeneca — Drift Detection"
+
+      tags:
+        project: astrazeneca-agentic-mlops
+        environment: ${bundle.target}
+        team: ml-platform
+
+      tasks:
+        - task_key: detect_drift
+          existing_cluster_id: ${var.cluster_id}
+
+          spark_python_task:
+            python_file: ${workspace.file_path}/src/monitoring/drift_detection.py
+            parameters:
+              - "--catalog"
+              - ${var.catalog}
+              - "--env"
+              - ${bundle.target}
+
+          libraries:
+            - pypi:
+                package: evidently==0.4.30
+
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+
+      email_notifications:
+        on_failure:
+          - rtiwarirahul123@gmail.com

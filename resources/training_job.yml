@@ -1,17 +1,22 @@
+# ═══════════════════════════════════════════════════════
+# AstraZeneca — Training Pipeline
+# Multi-task DAB job
+# ═══════════════════════════════════════════════════════
+
 resources:
   jobs:
     training_job:
-      name: "[${bundle.target}] AstraZeneca — Model Training"
+      name: "[${bundle.target}] AstraZeneca — Training Pipeline"
 
       tags:
         project: astrazeneca-agentic-mlops
         environment: ${bundle.target}
         team: ml-platform
 
+      # ── Task 1: Train ──────────────────────────────
       tasks:
-        - task_key: train_baseline
+        - task_key: train
           existing_cluster_id: ${var.cluster_id}
-
           spark_python_task:
             python_file: ${workspace.file_path}/src/training/train_baseline.py
             parameters:
@@ -22,9 +27,39 @@ resources:
               - "--env"
               - ${bundle.target}
 
+        # ── Task 2: Evaluate + Register ──────────────
+        - task_key: evaluate_and_register
+          depends_on:
+            - task_key: train        # Train ke baad hi chalega
+          existing_cluster_id: ${var.cluster_id}
+          spark_python_task:
+            python_file: ${workspace.file_path}/src/training/evaluate_and_register.py
+            parameters:
+              - "--catalog"
+              - ${var.catalog}
+              - "--experiment_name"
+              - ${var.experiment_name}
+              - "--env"
+              - ${bundle.target}
+
+        # ── Task 3: Notify ────────────────────────────
+        - task_key: notify
+          depends_on:
+            - task_key: evaluate_and_register
+          existing_cluster_id: ${var.cluster_id}
+          spark_python_task:
+            python_file: ${workspace.file_path}/src/training/notify.py
+            parameters:
+              - "--catalog"
+              - ${var.catalog}
+              - "--env"
+              - ${bundle.target}
+
       max_concurrent_runs: 1
-      timeout_seconds: 3600
+      timeout_seconds: 7200
 
       email_notifications:
         on_failure:
+          - rtiwarirahul123@gmail.com
+        on_success:
           - rtiwarirahul123@gmail.com

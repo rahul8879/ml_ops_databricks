@@ -1,0 +1,30 @@
+# ═══════════════════════════════════════════════════════
+# AstraZeneca — Model Serving Endpoint
+# Databricks Model Serving — DAB managed
+# ═══════════════════════════════════════════════════════
+
+resources:
+  model_serving_endpoints:
+    drug_efficacy_endpoint:
+      name: "astrazeneca-drug-efficacy-${bundle.target}"
+
+      config:
+        served_entities:
+          - name: "drug-efficacy-champion"
+            entity_name: "${var.catalog}.ml.drug_efficacy_model"
+            entity_version: "1"
+            scale_to_zero_enabled: true
+            workload_size: "Small"
+
+        traffic_config:
+          routes:
+            - served_model_name: "drug-efficacy-champion"
+              traffic_percentage: 100
+
+      tags:
+        - key: project
+          value: astrazeneca-agentic-mlops
+        - key: environment
+          value: ${bundle.target}
+        - key: team
+          value: ml-platform
