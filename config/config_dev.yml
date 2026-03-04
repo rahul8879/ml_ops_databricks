@@ -1,0 +1,50 @@
+environment: dev
+
+databricks:
+  host: ${DATABRICKS_HOST}
+  cluster_id: ${DATABRICKS_CLUSTER_ID}
+
+# Unity Catalog
+unity_catalog:
+  catalog: astrazeneca_dev        # dev catalog
+  schemas:
+    bronze: bronze
+    silver: silver
+    gold: gold
+    monitoring: monitoring
+
+  # Full table paths
+  tables:
+    drug_raw:       astrazeneca_dev.bronze.drug_raw
+    patient_raw:    astrazeneca_dev.bronze.patient_raw
+    drug_clean:     astrazeneca_dev.silver.drug_clean
+    drug_features:  astrazeneca_dev.gold.drug_features
+    model_input:    astrazeneca_dev.gold.model_input
+    reference_data: astrazeneca_dev.gold.reference_data
+    drift_reports:  astrazeneca_dev.monitoring.drift_reports
+    drift_logs:     astrazeneca_dev.monitoring.drift_logs
+    audit_trail:    astrazeneca_dev.monitoring.audit_trail
+    prediction_logs: astrazeneca_dev.monitoring.prediction_logs
+
+mlflow:
+  experiment_name: /astrazeneca/dev/drug_efficacy
+  model_name: astrazeneca_drug_efficacy_dev
+  registry_uri: databricks-uc           # Unity Catalog backed registry
+  model_uri: models:/astrazeneca_dev.ml.drug_efficacy_model
+
+data:
+  target_column: efficacy_label
+  test_size: 0.2
+  random_state: 42
+
+drift:
+  psi_threshold: 0.25
+  accuracy_drop_threshold: 0.05
+  check_interval_minutes: 60
+
+monitoring:
+  delta_retention_days: 90
+  enable_cdf: true
+  enable_time_travel: true
+  dashboard: databricks_model_monitoring
+  agent_tracing: langsmith

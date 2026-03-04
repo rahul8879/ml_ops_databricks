@@ -1,0 +1,43 @@
+resources:
+  jobs:
+    batch_inference_job:
+      name: "[${bundle.target}] AstraZeneca — Batch Inference"
+
+      tags:
+        project: astrazeneca-agentic-mlops
+        environment: ${bundle.target}
+        team: ml-platform
+
+      tasks:
+        # Task 1 — Normal batch predictions
+        - task_key: batch_predict
+          existing_cluster_id: ${var.cluster_id}
+          spark_python_task:
+            python_file: ${workspace.file_path}/src/inference/batch_predict.py
+            parameters:
+              - "--catalog"
+              - ${var.catalog}
+              - "--env"
+              - ${bundle.target}
+
+        # Task 2 — Drift data inject
+        - task_key: inject_drift
+          depends_on:
+            - task_key: batch_predict
+          existing_cluster_id: ${var.cluster_id}
+          spark_python_task:
+            python_file: ${workspace.file_path}/src/inference/inject_drift.py
+            parameters:
+              - "--catalog"
+              - ${var.catalog}
+              - "--env"
+              - ${bundle.target}
+              - "--n_rows"
+              - "2000"
+
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+
+      email_notifications:
+        on_failure:
+          - rtiwarirahul123@gmail.com

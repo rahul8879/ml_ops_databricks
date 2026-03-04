@@ -1,0 +1,59 @@
+# ═══════════════════════════════════════════════════════
+# AstraZeneca — Databricks Asset Bundle
+# ═══════════════════════════════════════════════════════
+
+bundle:
+  name: astrazeneca-agentic-mlops
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog name
+  experiment_name:
+    description: MLflow experiment path
+  cluster_id:
+    description: Existing cluster ID
+
+targets:
+
+  # ─────────────────────────────────────────────────────
+  # DEV
+  # ─────────────────────────────────────────────────────
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://adb-7405617084023712.12.azuredatabricks.net
+
+    variables:
+      catalog: astrazeneca_dev
+      experiment_name: /astrazeneca/dev/drug_efficacy
+      cluster_id: 0302-041151-0r043klw
+
+  # ─────────────────────────────────────────────────────
+  # STAGING
+  # ─────────────────────────────────────────────────────
+  staging:
+    mode: staging
+    workspace:
+      host: https://adb-7405617084023712.12.azuredatabricks.net
+
+    variables:
+      catalog: astrazeneca_staging
+      experiment_name: /astrazeneca/staging/drug_efficacy
+      cluster_id: 0302-041151-0r043klw
+
+  # ─────────────────────────────────────────────────────
+  # PROD
+  # ─────────────────────────────────────────────────────
+  prod:
+    mode: production
+    workspace:
+      host: https://adb-7405617084023712.12.azuredatabricks.net
+
+    variables:
+      catalog: astrazeneca_prod
+      experiment_name: /astrazeneca/prod/drug_efficacy
+      cluster_id: 0302-041151-0r043klw

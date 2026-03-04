@@ -1,0 +1,28 @@
+# Databricks
+databricks-connect==14.3.*
+databricks-sdk
+
+# ML Core
+mlflow
+pandas
+numpy
+scikit-learn
+xgboost
+lightgbm
+
+# Drug/Molecular Features
+rdkit-pypi
+
+# Drift Detection
+evidently==0.4.30
+
+# Agents
+langchain
+langchain-openai
+langgraph
+langsmith
+
+# Utilities
+python-dotenv
+pyyaml
+loguru
