@@ -9,9 +9,9 @@ resources:
         team: ml-platform
 
       tasks:
+        # ── Task 1: Train ──────────────────────────────
         - task_key: train_baseline
           existing_cluster_id: ${var.cluster_id}
-
           spark_python_task:
             python_file: ${workspace.file_path}/src/training/train_baseline.py
             parameters:
@@ -22,9 +22,37 @@ resources:
               - "--env"
               - ${bundle.target}
 
+        # ── Task 2: Log Lineage ────────────────────────
+        - task_key: log_lineage
+          depends_on:
+            - task_key: train_baseline
+          existing_cluster_id: ${var.cluster_id}
+          spark_python_task:
+            python_file: ${workspace.file_path}/src/training/log_lineage.py
+            parameters:
+              - "--catalog"
+              - ${var.catalog}
+              - "--env"
+              - ${bundle.target}
+
+        # ── Task 3: Notify ─────────────────────────────
+        - task_key: notify
+          depends_on:
+            - task_key: log_lineage
+          existing_cluster_id: ${var.cluster_id}
+          spark_python_task:
+            python_file: ${workspace.file_path}/src/training/notify.py
+            parameters:
+              - "--catalog"
+              - ${var.catalog}
+              - "--env"
+              - ${bundle.target}
+
       max_concurrent_runs: 1
-      timeout_seconds: 3600
+      timeout_seconds: 7200
 
       email_notifications:
         on_failure:
+          - rtiwarirahul123@gmail.com
+        on_success:
           - rtiwarirahul123@gmail.com

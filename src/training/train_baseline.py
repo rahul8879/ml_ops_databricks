@@ -110,7 +110,22 @@ print("="*55)
 def load_training_data():
     print("\n[1/4] Loading data from Gold table...")
 
-    df_spark = spark.table(GOLD_TABLE)
+    # ── Delta version capture ────────────────────────────
+    delta_history = spark.sql(f"""
+        DESCRIBE HISTORY {GOLD_TABLE} LIMIT 1
+    """).collect()[0]
+
+    delta_version   = int(delta_history["version"])
+    delta_timestamp = str(delta_history["timestamp"])
+
+    print(f"      Delta version:   {delta_version}")
+    print(f"      Delta timestamp: {delta_timestamp}")
+
+    # ── Specific version se load ─────────────────────────
+    df_spark = spark.read \
+                    .format("delta") \
+                    .option("versionAsOf", delta_version) \
+                    .table(GOLD_TABLE)
 
     df_train = df_spark.filter(
         df_spark.data_split == "train"
@@ -122,15 +137,13 @@ def load_training_data():
 
     print(f"      Train rows:      {len(df_train):,}")
     print(f"      Validation rows: {len(df_val):,}")
-    print(f"      Features:        {len(FEATURE_COLS)}")
-    print(f"      Class balance:   {df_train[TARGET].mean():.2%} positive")
+    print(f"      Class balance:   {df_train[TARGET].mean():.2%}")
 
-    X_train = df_train[FEATURE_COLS]
-    y_train = df_train[TARGET]
-    X_val   = df_val[FEATURE_COLS]
-    y_val   = df_val[TARGET]
-
-    return X_train, y_train, X_val, y_val
+    return (
+        df_train[FEATURE_COLS], df_train[TARGET],
+        df_val[FEATURE_COLS],   df_val[TARGET],
+        delta_version,          delta_timestamp
+    )
 
 
 # ════════════════════════════════════════════════════════
@@ -187,36 +200,40 @@ def train_model(X_train, y_train, X_val, y_val, weights):
     print("      ✅ Training complete!")
     return model, params
 
-
-def save_run_metadata(run_id, metrics):
+def save_run_metadata(run_id, metrics, delta_version, delta_timestamp):
     print("\nSaving run metadata for next task...")
 
     run_metadata = spark.createDataFrame([{
-        "run_id":          str(run_id),
-        "environment":     str(ENV),
-        "catalog":         str(CATALOG),
-        "experiment_name": str(EXPERIMENT_NAME),
-        "precision":       float(metrics["precision"]),
-        "recall":          float(metrics["recall"]),
-        "f1_score":        float(metrics["f1_score"]),
-        "roc_auc":         float(metrics["roc_auc"]),
-        "accuracy":        float(metrics["accuracy"]),
-        "status":          "trained",
-        "model_version":   "None",
-        "created_at":      str(pd.Timestamp.now().isoformat()),
+        "run_id":            str(run_id),
+        "environment":       str(ENV),
+        "catalog":           str(CATALOG),
+        "experiment_name":   str(EXPERIMENT_NAME),
+        "precision":         float(metrics["precision"]),
+        "recall":            float(metrics["recall"]),
+        "f1_score":          float(metrics["f1_score"]),
+        "roc_auc":           float(metrics["roc_auc"]),
+        "accuracy":          float(metrics["accuracy"]),
+        "status":            "trained",
+        "model_version":     "None",
+        "delta_version":     str(delta_version),      # ← New
+        "delta_timestamp":   str(delta_timestamp),    # ← New
+        "gold_table":        str(GOLD_TABLE),         # ← New
+        "xgboost_version":   str(xgb.__version__),    # ← New
+        "created_at":        pd.Timestamp.now().isoformat(),
     }])
 
     run_metadata.write \
         .format("delta") \
-        .mode("overwrite") \
-        .option("overwriteSchema", "true") \
+        .mode("append") \
+        .option("mergeSchema", "true") \
         .saveAsTable(f"{CATALOG}.monitoring.training_runs")
 
-    print(f"✅ Run metadata saved → {CATALOG}.monitoring.training_runs")
+    print(f"✅ Metadata saved → {CATALOG}.monitoring.training_runs")
+    print(f"   delta_version: {delta_version}")
     print(f"   run_id: {run_id}")
 
 
-def evaluate_and_log(model, params, X_train, X_val, y_val):
+def evaluate_and_log(model, params, X_train, X_val, y_val,delta_version, delta_timestamp):
     print("\n[4/4] Evaluating + Logging to MLflow...")
 
     y_pred      = model.predict(X_val)
@@ -264,26 +281,34 @@ def evaluate_and_log(model, params, X_train, X_val, y_val):
         
     with mlflow.start_run(run_name=f"xgboost_{ENV}_baseline_v1") as run:
 
-        # Parameters
+        # Existing params
         mlflow.log_params(params)
         mlflow.log_param("catalog",            CATALOG)
         mlflow.log_param("environment",        ENV)
         mlflow.log_param("feature_count",      len(FEATURE_COLS))
         mlflow.log_param("train_samples",      len(X_train))
         mlflow.log_param("imbalance_strategy", "sample_weight_balanced")
+
+        # ── Data Lineage params ──────────────────────────
         mlflow.log_param("gold_table",         GOLD_TABLE)
+        mlflow.log_param("delta_version",      str(delta_version))
+        mlflow.log_param("delta_timestamp",    delta_timestamp)
+        mlflow.log_param("validation_rows",    len(X_val))
+        mlflow.log_param("feature_table",      FEATURE_TABLE)
+        mlflow.log_param("python_version",     "3.12")
+        mlflow.log_param("xgboost_version",    xgb.__version__)
 
         # Metrics
         mlflow.log_metrics(metrics)
 
-        # Model — log only, NO registration
+        # Model log
         mlflow.xgboost.log_model(
             xgb_model=model,
             artifact_path="model",
             input_example=X_train.iloc[:5],
         )
 
-        # Feature importance artifact
+        # Feature importance
         feat_imp = pd.DataFrame({
             "feature":    FEATURE_COLS,
             "importance": model.feature_importances_
@@ -292,27 +317,16 @@ def evaluate_and_log(model, params, X_train, X_val, y_val):
         feat_imp.to_csv("/tmp/feature_importance.csv", index=False)
         mlflow.log_artifact("/tmp/feature_importance.csv")
 
-        print(f"\n      Top 5 Features:")
-        print(f"      {'Feature':<25} {'Importance':>12}")
-        print(f"      {'─'*37}")
-        for _, row in feat_imp.head(5).iterrows():
-            print(f"      {row['feature']:<25} {row['importance']:>12.4f}")
-
-        # Tags
         mlflow.set_tags({
-            "model_type":   "xgboost",
-            "environment":  ENV,
-            "data_version": "baseline_v1",
-            "catalog":      CATALOG,
-            "status":       "logged_not_registered",
+            "model_type":        "xgboost",
+            "environment":       ENV,
+            "data_version":      "baseline_v1",
+            "delta_version":     str(delta_version),
+            "catalog":           CATALOG,
+            "status":            "logged_not_registered",
         })
 
         run_id = run.info.run_id
-
-    print(f"\n      ✅ MLflow Run ID:  {run_id}")
-    print(f"      ✅ Experiment:     {EXPERIMENT_NAME}")
-    print(f"      ℹ️   Model NOT registered yet")
-    print(f"      ℹ️   Review metrics → then register manually")
 
     return run_id, metrics
 
@@ -321,18 +335,32 @@ def evaluate_and_log(model, params, X_train, X_val, y_val):
 # MAIN EXECUTION
 # spark_python_task seedha execute karta hai
 # ════════════════════════════════════════════════════════
-X_train, y_train, X_val, y_val = load_training_data()
-weights                         = get_sample_weights(y_train)
-model, params                   = train_model(
-                                    X_train, y_train,
-                                    X_val, y_val,
-                                    weights
-                                  )
-run_id, metrics                   = evaluate_and_log(
-                                    model, params,
-                                    X_train, X_val, y_val
-                                  )
-save_run_metadata(run_id, metrics)
+# Load data — delta_version bhi return hoga
+X_train, y_train, \
+X_val, y_val, \
+delta_version, \
+delta_timestamp         = load_training_data()
+
+weights                 = get_sample_weights(y_train)
+
+model, params           = train_model(
+                            X_train, y_train,
+                            X_val, y_val,
+                            weights
+                          )
+
+run_id, metrics         = evaluate_and_log(
+                            model, params,
+                            X_train, X_val, y_val,
+                            delta_version,      # ← Pass karo
+                            delta_timestamp     # ← Pass karo
+                          )
+
+save_run_metadata(
+    run_id, metrics,
+    delta_version,          # ← Pass karo
+    delta_timestamp         # ← Pass karo
+)
 print("\n" + "="*55)
 print(" ✅ Training Complete!")
 print("="*55)

@@ -25,7 +25,7 @@ print("="*55)
 # Latest registered run lo
 df = spark.table(f"{CATALOG}.monitoring.training_runs") \
           .filter(F.col("environment") == ENV) \
-          .filter(F.col("status") == "registered") \
+          .filter(F.col("status") == "trained") \
           .orderBy(F.col("created_at").desc()) \
           .limit(1)
 

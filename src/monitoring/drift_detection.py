@@ -100,19 +100,34 @@ def load_data():
 # ════════════════════════════════════════════════════════
 # STEP 2 — Evidently AI Report
 # ════════════════════════════════════════════════════════
+from evidently.calculations.stattests import StatTest
+from evidently.metrics import ColumnDriftMetric
+
 def run_evidently_report(df_ref, df_cur):
     print("\n[2/4] Running Evidently AI drift report...")
 
-    # Report banao
     report = Report(metrics=[
         DatasetDriftMetric(),
-        DataDriftPreset(),
-        ColumnDriftMetric(column_name="molecular_weight"),
-        ColumnDriftMetric(column_name="patient_age"),
-        ColumnDriftMetric(column_name="dosage_mg"),
-        ColumnDriftMetric(column_name="ecog_performance_score"),
-        ColumnDriftMetric(column_name="biomarker_pdl1"),
-        ColumnDriftMetric(column_name="logP"),
+        DataDriftPreset(stattest="psi",          # ← PSI explicitly
+                        stattest_threshold=0.25),
+        ColumnDriftMetric(column_name="molecular_weight",
+                          stattest="psi",
+                          stattest_threshold=0.25),
+        ColumnDriftMetric(column_name="patient_age",
+                          stattest="psi",
+                          stattest_threshold=0.25),
+        ColumnDriftMetric(column_name="dosage_mg",
+                          stattest="psi",
+                          stattest_threshold=0.25),
+        ColumnDriftMetric(column_name="ecog_performance_score",
+                          stattest="psi",
+                          stattest_threshold=0.25),
+        ColumnDriftMetric(column_name="biomarker_pdl1",
+                          stattest="psi",
+                          stattest_threshold=0.25),
+        ColumnDriftMetric(column_name="logP",
+                          stattest="psi",
+                          stattest_threshold=0.25),
     ])
 
     report.run(
@@ -120,11 +135,8 @@ def run_evidently_report(df_ref, df_cur):
         current_data=df_cur
     )
 
-    # JSON results
-    results = report.as_dict()
-
     print("      ✅ Evidently report complete!")
-    return report, results
+    return report, report.as_dict()
 
 
 # ════════════════════════════════════════════════════════
@@ -133,29 +145,30 @@ def run_evidently_report(df_ref, df_cur):
 def extract_drift_summary(results):
     print("\n[3/4] Extracting drift metrics...")
 
-    metrics     = results["metrics"]
-    drift_summary = {}
-
-    # Dataset level drift
-    dataset_metric = metrics[0]["result"]
+    metrics         = results["metrics"]
+    dataset_metric  = metrics[0]["result"]
     dataset_drifted = dataset_metric.get("dataset_drift", False)
     share_drifted   = dataset_metric.get("share_of_drifted_columns", 0)
 
     print(f"\n      Dataset Drift Detected: {dataset_drifted}")
     print(f"      Share of drifted cols:  {share_drifted:.1%}")
 
-    # Per column drift
-    print(f"\n      {'Feature':<22} {'Score':>8} {'Drifted':>10} {'Severity':>12}")
+    print(f"\n      {'Feature':<22} {'PSI':>8} {'Drifted':>10} {'Severity':>12}")
     print(f"      {'─'*54}")
 
-    col_metrics = metrics[2:]  # First 2 are dataset level
+    drift_summary = {}
+    col_metrics   = metrics[2:]  # Skip dataset level
 
     for m in col_metrics:
-        col_name = m["result"].get("column_name", "unknown")
-        score    = m["result"].get("drift_score", 0)
-        drifted  = m["result"].get("drift_detected", False)
+        col_name = m["result"].get("column_name", None)
 
-        # Severity
+        # ── "unknown" skip karo ──────────────────────────
+        if col_name is None or col_name == "unknown":
+            continue
+
+        score   = m["result"].get("drift_score", 0)
+        drifted = m["result"].get("drift_detected", False)
+
         if score >= PSI_CRITICAL:
             severity = "🔴 CRITICAL"
         elif score >= PSI_SEVERE:
@@ -176,15 +189,14 @@ def extract_drift_summary(results):
         print(f"      {col_name:<22} {score:>8.4f} "
               f"{'YES' if drifted else 'NO':>10} {severity:>12}")
 
-    # Overall PSI — max of all features
     max_psi     = max([v["score"] for v in drift_summary.values()])
     max_feature = max(drift_summary, key=lambda x: drift_summary[x]["score"])
 
-    print(f"\n      Max PSI: {max_psi:.4f} ({max_feature})")
+    print(f"\n      Max PSI:  {max_psi:.4f} ({max_feature})")
 
     if max_psi >= PSI_CRITICAL:
         action = "IMMEDIATE_ROLLBACK"
-        print(f"      🔴 CRITICAL — Immediate rollback required!")
+        print(f"      🔴 CRITICAL — Rollback required!")
     elif max_psi >= PSI_SEVERE:
         action = "RETRAIN"
         print(f"      🟠 SEVERE — Retraining required!")

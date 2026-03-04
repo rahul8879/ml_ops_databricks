@@ -70,101 +70,84 @@ def generate_drift_data(n=N_ROWS):
 
     np.random.seed(SEED)
 
-    # ── SHIFT 1: Molecular Weight ────────────────────────
-    # Baseline: 340 Da → Drift: 460 Da (BiTE antibodies)
-    molecular_weight = np.random.normal(460, 80, n).clip(200, 700)
+    # ── Generate all arrays ──────────────────────────────
+    mw      = np.random.normal(460, 80, n).clip(200, 700)
+    age     = np.random.normal(61, 11, n).clip(30, 85).astype(int)
+    dose    = np.random.normal(210, 60, n).clip(75, 350)
+    logp    = np.random.normal(2.5, 1.2, n).clip(-3, 7)
+    hbd     = np.random.randint(0, 6, n)
+    hba     = np.random.randint(0, 8, n)
+    rot     = np.random.randint(0, 10, n)
+    tpsa    = np.random.normal(80, 20, n).clip(20, 160)
+    gender  = np.random.randint(0, 2, n)
+    chemo   = np.random.randint(0, 2, n)
+    pdl1    = np.random.normal(45, 20, n).clip(0, 100)
+    cycles  = np.random.randint(1, 9, n)
+    ecog    = np.random.choice([0,1,2,3], n, p=[0.20,0.35,0.30,0.15])
 
-    # ── SHIFT 2: Patient Age ─────────────────────────────
-    # Baseline: 54 yrs → Drift: 61 yrs
-    patient_age  = np.random.normal(61, 11, n).clip(30, 85).astype(int)
-    ecog_score   = np.random.choice(
-        [0, 1, 2, 3], n,
-        p=[0.20, 0.35, 0.30, 0.15]  # Worse than baseline
-    )
+    cell_line_type  = np.random.choice(CELL_LINES, n)
+    cell_line_map   = {"NSCLC":0,"Breast":1,"CRC":2,"Leukemia":3,"Lymphoma":4}
+    cli             = np.array([cell_line_map.get(c, 0) for c in cell_line_type])
 
-    # ── SHIFT 3: Dosage ──────────────────────────────────
-    # Baseline: 125 mg → Drift: 210 mg
-    dosage_mg    = np.random.normal(210, 60, n).clip(75, 350)
+    age_grp = np.where(age < 40, "young", np.where(age < 60, "middle", "senior"))
+    agi     = np.array([{"young":0,"middle":1,"senior":2}.get(a,1) for a in age_grp])
 
-    # ── Other features — same as baseline ───────────────
-    logP             = np.random.normal(2.5, 1.2, n).clip(-3, 7)
-    hbd_count        = np.random.randint(0, 6, n)
-    hba_count        = np.random.randint(0, 8, n)
-    rotatable_bonds  = np.random.randint(0, 10, n)
-    tpsa             = np.random.normal(80, 20, n).clip(20, 160)
-    patient_gender   = np.random.randint(0, 2, n)
-    prior_chemo      = np.random.randint(0, 2, n)
-    biomarker_pdl1   = np.random.normal(45, 20, n).clip(0, 100)
-    treatment_cycles = np.random.randint(1, 9, n)
-    cell_line_type   = np.random.choice(CELL_LINES, n)
+    lip     = ((mw<500).astype(int)+(logp<5).astype(int)+
+               (hbd<5).astype(int)+(hba<10).astype(int)).astype(float)
+    risk    = ((age/80.0)*0.4 + (ecog/4.0)*0.4 + chemo*0.2).round(4)
+    dntpsa  = (tpsa/dose).round(4)
+    pdl1f   = (pdl1>50).astype(int)
 
-    # ── Derived features — same logic ───────────────────
-    cell_line_map = {
-        "NSCLC": 0, "BREAST": 1, "CRC": 2,
-        "LEUKEMIA": 3, "LYMPHOMA": 4
-    }
-    cell_line_index = np.array([
-        cell_line_map.get(c.upper(), 0)
-        for c in cell_line_type
-    ])
+    mw_norm   = ((mw-100)/700).round(4)
+    logp_norm = ((logp-(-5))/15).round(4)
+    tpsa_norm = (tpsa/200).round(4)
+    pdl1_norm = (pdl1/100).round(4)
+    dose_norm = ((dose-10)/390).round(4)
+    age_norm  = ((age-18)/72).round(4)
 
-    age_group       = np.where(
-        patient_age < 40, "young",
-        np.where(patient_age < 60, "middle", "senior")
-    )
-    age_group_map   = {"young": 0, "middle": 1, "senior": 2}
-    age_group_index = np.array([
-        age_group_map.get(a, 1) for a in age_group
-    ])
+    mw_penalty = np.where(mw > 500, 0.15, 0.0)
+    eff_score  = (
+        0.25*(1-(mw-150)/350) + 0.20*(logp.clip(0,5)/5) +
+        0.20*(1-ecog/3) + 0.15*(pdl1/100) +
+        0.10*(1-(age-25)/55) + 0.10*np.random.normal(0,0.1,n) - mw_penalty
+    ).clip(0,1)
+    label = (eff_score >= 0.5).astype(int)
 
-    lipinski_score = (
-        (molecular_weight < 500).astype(int) +
-        (logP < 5).astype(int) +
-        (hbd_count < 5).astype(int) +
-        (hba_count < 10).astype(int)
-    ).astype(float)
-
-    patient_risk_score = (
-        (patient_age / 80.0) * 0.4 +
-        (ecog_score / 4.0) * 0.4 +
-        prior_chemo * 0.2
-    ).round(4)
-
-    dose_normalized_tpsa = (tpsa / dosage_mg).round(4)
-    high_pdl1_flag       = (biomarker_pdl1 > 50).astype(int)
-
-    # ── Normalized features ──────────────────────────────
-    molecular_weight_norm = ((molecular_weight - 100) / 700).round(4)
-    logP_norm             = ((logP - (-5)) / 15).round(4)
-    tpsa_norm             = (tpsa / 200).round(4)
-    biomarker_pdl1_norm   = (biomarker_pdl1 / 100).round(4)
-    dosage_mg_norm        = ((dosage_mg - 10) / 390).round(4)
-    patient_age_norm      = ((patient_age - 18) / 72).round(4)
-
-    # ── Actual labels ────────────────────────────────────
-    mw_penalty     = np.where(molecular_weight > 500, 0.15, 0.0)
-    efficacy_score = (
-        0.25 * (1 - (molecular_weight - 150) / 350) +
-        0.20 * (logP.clip(0, 5) / 5) +
-        0.20 * (1 - ecog_score / 3) +
-        0.15 * (biomarker_pdl1 / 100) +
-        0.10 * (1 - (patient_age - 25) / 55) +
-        0.10 * np.random.normal(0, 0.1, n) -
-        mw_penalty
-    ).clip(0, 1)
-    actual_label = (efficacy_score >= 0.5).astype(int)
-
+    # ── Build DataFrame explicitly ───────────────────────
     df = pd.DataFrame({
-        col: globals().get(col, np.zeros(n))
-        for col in FEATURE_COLS
+        "molecular_weight":        mw.astype(float),
+        "logP":                    logp.astype(float),
+        "hbd_count":               hbd.astype(float),
+        "hba_count":               hba.astype(float),
+        "rotatable_bonds":         rot.astype(float),
+        "tpsa":                    tpsa.astype(float),
+        "patient_age":             age.astype(float),
+        "patient_gender":          gender.astype(float),
+        "ecog_performance_score":  ecog.astype(float),
+        "prior_chemotherapy":      chemo.astype(float),
+        "biomarker_pdl1":          pdl1.astype(float),
+        "dosage_mg":               dose.astype(float),
+        "treatment_cycles":        cycles.astype(float),
+        "cell_line_index":         cli.astype(float),
+        "age_group_index":         agi.astype(float),
+        "lipinski_score":          lip,
+        "patient_risk_score":      risk,
+        "dose_normalized_tpsa":    dntpsa,
+        "high_pdl1_flag":          pdl1f.astype(float),
+        "molecular_weight_norm":   mw_norm,
+        "logP_norm":               logp_norm,
+        "tpsa_norm":               tpsa_norm,
+        "biomarker_pdl1_norm":     pdl1_norm,
+        "dosage_mg_norm":          dose_norm,
+        "patient_age_norm":        age_norm,
+        "efficacy_label":          label,
+        "data_version":            "drift_v1",
     })
-    df["efficacy_label"] = actual_label
-    df["data_version"]   = "drift_v1"
 
-    print(f"      ✅ Generated {len(df):,} drifted records")
-    print(f"      Avg MW:    {molecular_weight.mean():.1f} Da  (baseline: ~340)")
-    print(f"      Avg Age:   {patient_age.mean():.1f} yrs (baseline: ~54)")
-    print(f"      Avg Dose:  {dosage_mg.mean():.1f} mg  (baseline: ~125)")
+    print(f"      ✅ Generated {len(df):,} records")
+    print(f"      Avg MW:   {df['molecular_weight'].mean():.1f} Da")
+    print(f"      Avg Age:  {df['patient_age'].mean():.1f} yrs")
+    print(f"      Avg Dose: {df['dosage_mg'].mean():.1f} mg")
 
     return df
 
@@ -190,49 +173,60 @@ def load_champion_model():
 def predict_on_drift(model, df):
     print(f"\n[3/4] Running predictions on drifted data...")
 
+    # Debug
+    print(f"      Sample input:")
+    print(df[["molecular_weight", "patient_age", "dosage_mg"]].head(3))
+
     X                = df[FEATURE_COLS]
     predictions      = model.predict(X)
     prediction_probs = model.predict_proba(X)[:, 1]
 
+    # ── Explicitly from df — no ambiguity ────────────────
+    mw      = df["molecular_weight"].tolist()
+    age     = df["patient_age"].tolist()
+    dose    = df["dosage_mg"].tolist()
+    ecog    = df["ecog_performance_score"].tolist()
+    pdl1    = df["biomarker_pdl1"].tolist()
+    logp    = df["logP"].tolist()
+    actual  = df["efficacy_label"].tolist()
+    dv      = df["data_version"].tolist()
+
     df_results = pd.DataFrame({
-    "prediction":             predictions.astype(int),
-    "prediction_prob":        prediction_probs.round(4),
-    "prediction_label":       ["Effective" if p == 1
-                               else "Not Effective"
-                               for p in predictions],
-    "confidence":             np.where(
-                                  prediction_probs >= 0.5,
-                                  prediction_probs,
-                                  1 - prediction_probs
-                              ).round(4),
+        "prediction":             predictions.astype(int),
+        "prediction_prob":        prediction_probs.round(4),
+        "prediction_label":       ["Effective" if p == 1
+                                   else "Not Effective"
+                                   for p in predictions],
+        "confidence":             np.where(
+                                      prediction_probs >= 0.5,
+                                      prediction_probs,
+                                      1 - prediction_probs
+                                  ).round(4),
+        "molecular_weight":       mw,       # ← explicit
+        "patient_age":            [float(a) for a in age],
+        "dosage_mg":              dose,
+        "ecog_performance_score": [float(e) for e in ecog],
+        "biomarker_pdl1":         pdl1,
+        "logP":                   logp,
+        "actual_label":           [int(a) for a in actual],
+        "model_name":             MODEL_NAME,
+        "model_alias":            MODEL_ALIAS,
+        "environment":            ENV,
+        "batch_id":               datetime.now().strftime("%Y%m%d_%H%M%S"),
+        "predicted_at":           datetime.now().isoformat(),
+        "data_version":           dv,
+        "is_correct":             [bool(p == a)
+                                   for p, a in zip(predictions, actual)],
+    })
 
-    # ── Sab float karo — schema match karne ke liye ──
-    "molecular_weight":       df["molecular_weight"].values.astype(float),
-    "patient_age":            df["patient_age"].values.astype(float),  # ← float
-    "dosage_mg":              df["dosage_mg"].values.astype(float),
-    "ecog_performance_score": df["ecog_performance_score"].values.astype(float),
-    "biomarker_pdl1":         df["biomarker_pdl1"].values.astype(float),
-    "logP":                   df["logP"].values.astype(float),
-    "actual_label":           df["efficacy_label"].values.astype(int),
-    "model_name":             MODEL_NAME,
-    "model_alias":            MODEL_ALIAS,
-    "environment":            ENV,
-    "batch_id":               datetime.now().strftime("%Y%m%d_%H%M%S"),
-    "predicted_at":           datetime.now().isoformat(),
-    "data_version":           "drift_v1",
-    "is_correct":             (predictions ==
-                               df["efficacy_label"].values).astype(bool),
-})
-
-    # Accuracy on drift data
-    accuracy = df_results["is_correct"].mean()
-    print(f"      Predictions:      {len(df_results):,}")
-    print(f"      Accuracy on drift: {accuracy:.2%}  ← Should be lower!")
-    print(f"      Baseline accuracy: ~94.96%")
-    print(f"      Drop:              ~{(0.9496 - accuracy)*100:.1f}%")
+    accuracy = sum(df_results["is_correct"]) / len(df_results)
+    print(f"      Predictions:       {len(df_results):,}")
+    print(f"      Accuracy on drift: {accuracy:.2%}")
+    print(f"      Sample results:")
+    print(df_results[["molecular_weight", "patient_age",
+                       "dosage_mg", "prediction"]].head(3))
 
     return df_results
-
 
 # ════════════════════════════════════════════════════════
 # STEP 4 — Save to prediction_logs
