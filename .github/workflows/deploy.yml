@@ -1,31 +1,20 @@
-# ═══════════════════════════════════════════════════════
-# AstraZeneca — CI/CD Pipeline
-# GitHub Actions + Databricks Asset Bundles
-# ═══════════════════════════════════════════════════════
-
 name: AstraZeneca MLOps CI/CD
 
 on:
   push:
     branches:
-      - dev        # Dev push → Dev deploy
-      - staging    # Staging push → Staging deploy
-      - main       # Main push → Prod deploy
+      - dev      # Feature development
+      - main     # Staging + Prod trigger
 
   pull_request:
     branches:
-      - main       # PR to main → Validate only
-
-# ── Permissions ──────────────────────────────────────────
-permissions:
-  contents: read
-  pull-requests: write
+      - main     # PR validate only
 
 jobs:
 
-  # ════════════════════════════════════════════════════
+  # ════════════════════════════════════════════════
   # JOB 1: Validate — Har branch pe
-  # ════════════════════════════════════════════════════
+  # ════════════════════════════════════════════════
   validate:
     name: Bundle Validate
     runs-on: ubuntu-latest
@@ -33,11 +22,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
 
       - name: Install Databricks CLI
         run: |
@@ -51,9 +35,10 @@ jobs:
           databricks bundle validate --target dev
           echo "✅ Bundle validation passed!"
 
-  # ════════════════════════════════════════════════════
-  # JOB 2: Deploy Dev — dev branch push pe
-  # ════════════════════════════════════════════════════
+  # ════════════════════════════════════════════════
+  # JOB 2: Deploy Dev — dev branch pe
+  # Sirf deploy — training manually run karo
+  # ════════════════════════════════════════════════
   deploy-dev:
     name: Deploy to Dev
     runs-on: ubuntu-latest
@@ -76,22 +61,28 @@ jobs:
           databricks bundle deploy --target dev
           echo "✅ Dev deployment complete!"
 
-      - name: Run Training Job
+      # Training job har push pe nahi
+      # Sirf data/training files change hone pe
+      - name: Run Training — Only if training files changed
         env:
           DATABRICKS_HOST:  ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
-          databricks bundle run training_job --target dev
-          echo "✅ Training job triggered!"
+          # Check karo kya training files change hui hain
+          git diff --name-only HEAD~1 HEAD | grep -E "src/training|src/data" && \
+          databricks bundle run training_job --target dev && \
+          echo "✅ Training triggered!" || \
+          echo "⏭️  No training files changed — skipping training"
 
-  # ════════════════════════════════════════════════════
-  # JOB 3: Deploy Staging — staging branch push pe
-  # ════════════════════════════════════════════════════
+  # ════════════════════════════════════════════════
+  # JOB 3: Deploy Staging — main branch pe
+  # Databricks recommend: main → staging first
+  # ════════════════════════════════════════════════
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
     needs: validate
-    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
       - name: Checkout code
@@ -109,24 +100,24 @@ jobs:
           databricks bundle deploy --target staging
           echo "✅ Staging deployment complete!"
 
-      - name: Run Training Job — Staging
+      - name: Run Staging Tests
         env:
           DATABRICKS_HOST:  ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
           databricks bundle run training_job --target staging
-          echo "✅ Staging training job triggered!"
+          echo "✅ Staging tests passed!"
 
-  # ════════════════════════════════════════════════════
-  # JOB 4: Deploy Prod — main branch push pe
+  # ════════════════════════════════════════════════
+  # JOB 4: Deploy Prod — Staging pass ke baad
   # Manual approval required
-  # ════════════════════════════════════════════════════
+  # ════════════════════════════════════════════════
   deploy-prod:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: validate
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: deploy-staging      # ← Staging pass hone ke baad
     environment: production    # ← Manual approval gate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
       - name: Checkout code
@@ -143,3 +134,5 @@ jobs:
         run: |
           databricks bundle deploy --target prod
           echo "✅ Production deployment complete!"
+
+
